@@ -28,6 +28,15 @@ from time import time
 from threading import Event
 from binascii import hexlify
 
+import docker, time, math
+import datetime
+import time
+import keyboard
+import sys
+import termios, tty
+from io import BytesIO
+from threading import Thread
+
 
 class QSSHServer():
     def __init__(self, **kwargs):
@@ -113,6 +122,11 @@ class QSSHServer():
             def check_channel_pty_request(self, channel, term, width, height, pixelwidth, pixelheight, modes):
                 return True
 
+        def read_input(ssh_conn, docker_conn):
+            while True:
+                recv = ssh_conn.recv(1)
+                docker_conn.send(recv)
+
         def ConnectionHandle(client, priv):
             with suppress(Exception):
                 t = Transport(client)
@@ -148,6 +162,31 @@ class QSSHServer():
                             break
                         else:
                             conn.send("\r\n{}: command not found\r\n".format(line))
+                if "docker" in _q_s.options and conn is not None:
+                    _q_s.logs.info({'server': 'ssh_server', 'action': 'docker', 'src_ip': ip, 'src_port': port, 'dest_ip': _q_s.ip, 'dest_port': _q_s.port})
+                    client = docker.APIClient()
+
+                    # create container
+                    container = client.create_container(
+                        'vyzigold/kali',
+                        stdin_open = True,
+                        tty        = True,
+                        command    = '/bin/bash')
+                    client.start(container)
+
+                    # attach stdin to container and send data
+                    s = client.attach_socket(container, params={'stdin': 1, 'stdout': 1 ,'stderr': 1, 'stream': 1})._sock
+                    t = Thread(target = read_input, args = (conn, s))
+                    t.start()
+                    while True:
+                        output = s.recv(3000)
+                        ss = output.decode("utf-8")
+                        conn.send(ss)
+
+                    client.stop(container)
+                    client.wait(container)
+                    client.remove_container(container)
+
                 with suppress(Exception):
                     sshhandle.event.wait(2)
                 with suppress(Exception):
