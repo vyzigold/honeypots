@@ -31,11 +31,10 @@ from binascii import hexlify
 import docker, time, math
 import datetime
 import time
-import keyboard
 import sys
 import termios, tty
 from io import BytesIO
-from threading import Thread
+from threading import Thread, Lock
 
 
 class QSSHServer():
@@ -54,6 +53,8 @@ class QSSHServer():
         self.port = (kwargs.get('port', None) and int(kwargs.get('port', None))) or (hasattr(self, 'port') and self.port) or 22
         self.username = kwargs.get('username', None) or (hasattr(self, 'username') and self.username) or 'test'
         self.password = kwargs.get('password', None) or (hasattr(self, 'password') and self.password) or 'test'
+        self.docker_image = kwargs.get('docker_image', None) or (hasattr(self, 'docker_image') and self.docker_image) or 'vyzigold/kali'
+        self.docker_socket_path = kwargs.get('docker_socket_path', None) or (hasattr(self, 'docker_socket_path') and self.docker_socket_path) or None
         self.options = kwargs.get('options', '') or (hasattr(self, 'options') and self.options) or getenv('HONEYPOTS_OPTIONS', '') or ''
         self.ansi = rcompile(r'(?:\x1B[@-_]|[\x80-\x9F])[0-?]*[ -/]*[@-~]')
 
@@ -122,10 +123,29 @@ class QSSHServer():
             def check_channel_pty_request(self, channel, term, width, height, pixelwidth, pixelheight, modes):
                 return True
 
-        def read_input(ssh_conn, docker_conn):
+        # used to read ssh and send commands to docker
+        def read_input(ssh_conn, docker_conn, file_lock, file, src_ip, src_port):
+            last_cmd = b''
             while True:
                 recv = ssh_conn.recv(1)
+
+                # record and log commands
+                if len(last_cmd) != 0 and recv == b'\r':
+                    _q_s.logs.info({'server': 'ssh_server', 'action': 'docker', 'src_ip': src_ip, 'src_port': src_port, 'dest_ip': _q_s.ip, 'dest_port': _q_s.port, "data": {"command": last_cmd.decode("utf-8")}})
+                    last_cmd = b''
+                elif recv != b'\r':
+                    last_cmd += recv
+
+                print(len(recv))
+                if len(recv) == 0:
+                    break
+                file_lock.acquire()
+                file.write("I:".encode("utf-8"))
+                file.write(len(recv).to_bytes(4, byteorder='little', signed=False))
+                file.write(recv)
+                file_lock.release()
                 docker_conn.send(recv)
+
 
         def ConnectionHandle(client, priv):
             with suppress(Exception):
@@ -137,6 +157,9 @@ class QSSHServer():
                 sshhandle = SSHHandle(ip, port)
                 t.start_server(server=sshhandle)
                 conn = t.accept(30)
+
+                thread = None
+
                 if "interactive" in _q_s.options and conn is not None:
                     conn.send("Welcome to Ubuntu 20.04.4 LTS (GNU/Linux 5.10.60.1-microsoft-standard-WSL2 x86_64)\r\n\r\n")
                     current_time = time()
@@ -164,11 +187,15 @@ class QSSHServer():
                             conn.send("\r\n{}: command not found\r\n".format(line))
                 if "docker" in _q_s.options and conn is not None:
                     _q_s.logs.info({'server': 'ssh_server', 'action': 'docker', 'src_ip': ip, 'src_port': port, 'dest_ip': _q_s.ip, 'dest_port': _q_s.port})
+                    file_lock = Lock()
+
                     client = docker.APIClient()
+                    if _q_s.docker_socket_path is not None:
+                        client = docker.APIClient(base_url=_q_s.docker_socket_path)
 
                     # create container
                     container = client.create_container(
-                        'vyzigold/kali',
+                        _q_s.docker_image,
                         stdin_open = True,
                         tty        = True,
                         command    = '/bin/bash')
@@ -176,16 +203,33 @@ class QSSHServer():
 
                     # attach stdin to container and send data
                     s = client.attach_socket(container, params={'stdin': 1, 'stdout': 1 ,'stderr': 1, 'stream': 1})._sock
-                    t = Thread(target = read_input, args = (conn, s))
-                    t.start()
-                    while True:
-                        output = s.recv(3000)
-                        ss = output.decode("utf-8")
-                        conn.send(ss)
+                    s.settimeout(1)
 
-                    client.stop(container)
-                    client.wait(container)
-                    client.remove_container(container)
+                    with open("/tmp/communication_recording", "wb") as file:
+                        thread = Thread(target = read_input, args = (conn, s, file_lock, file, ip, port))
+                        thread.start()
+
+                        while True:
+                            try:
+                                output = s.recv(3000)
+                                if len(output) == 0:
+                                    break
+                                file_lock.acquire()
+                                file.write("O:".encode("utf-8"))
+                                file.write(len(output).to_bytes(4, byteorder='little', signed=False))
+                                file.write(output)
+                                file_lock.release()
+                                conn.send(output.decode("utf-8"))
+                            except:
+                                if thread.is_alive():
+                                    continue
+                                else:
+                                    break
+
+                        client.stop(container)
+                        client.wait(container)
+                        client.remove_container(container)
+
 
                 with suppress(Exception):
                     sshhandle.event.wait(2)
@@ -193,6 +237,8 @@ class QSSHServer():
                     conn.close()
                 with suppress(Exception):
                     t.close()
+                if thread is not None:
+                    thread.join()
 
         sock = socket(AF_INET, SOCK_STREAM)
         sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
@@ -207,6 +253,7 @@ class QSSHServer():
     def run_server(self, process=False, auto=False):
         status = 'error'
         run = False
+        process=False
         if process:
             if auto and not self.auto_disabled:
                 port = get_free_port()

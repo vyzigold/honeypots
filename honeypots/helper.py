@@ -34,7 +34,7 @@ from pathlib import Path
 from contextlib import suppress
 
 old_stderr = sys.stderr
-sys.stderr = open(devnull, 'w')
+#sys.stderr = open(devnull, 'w')
 
 
 def check_privileges():
