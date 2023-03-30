@@ -136,7 +136,6 @@ class QSSHServer():
                 elif recv != b'\r':
                     last_cmd += recv
 
-                print(len(recv))
                 if len(recv) == 0:
                     break
                 file_lock.acquire()
@@ -148,7 +147,7 @@ class QSSHServer():
 
 
         def ConnectionHandle(client, priv):
-            with suppress(Exception):
+            with open("/dev/null", "r") as some_file:
                 t = Transport(client)
                 ip, port = client.getpeername()
                 _q_s.logs.info({'server': 'ssh_server', 'action': 'connection', 'src_ip': ip, 'src_port': port, 'dest_ip': _q_s.ip, 'dest_port': _q_s.port})
