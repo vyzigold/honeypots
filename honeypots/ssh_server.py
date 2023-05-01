@@ -188,9 +188,12 @@ class QSSHServer():
                     _q_s.logs.info({'server': 'ssh_server', 'action': 'docker', 'src_ip': ip, 'src_port': port, 'dest_ip': _q_s.ip, 'dest_port': _q_s.port})
                     file_lock = Lock()
 
-                    client = docker.APIClient()
+                    client = None
                     if _q_s.docker_socket_path is not None:
                         client = docker.APIClient(base_url=_q_s.docker_socket_path)
+                    else:
+                        client = docker.APIClient()
+                        
 
                     # create container
                     container = client.create_container(
