@@ -99,6 +99,8 @@ class QSSHServer():
                 if status == 'success':
                     _q_s.logs.info({'server': 'ssh_server', 'action': 'login', 'status': status, 'src_ip': self.ip, 'src_port': self.port, 'dest_ip': _q_s.ip, 'dest_port': _q_s.port, 'username': username, 'password': password})
                     return AUTH_SUCCESSFUL
+                else:
+                    _q_s.logs.info({'server': 'ssh_server', 'action': 'login', 'status': status, 'src_ip': self.ip, 'src_port': self.port, 'dest_ip': _q_s.ip, 'dest_port': _q_s.port, 'username': username, 'password': password})
                 return AUTH_FAILED
 
             def check_channel_exec_request(self, channel, command):
@@ -125,6 +127,9 @@ class QSSHServer():
 
         # used to read ssh and send commands to docker
         def read_input(ssh_conn, docker_conn, file_lock, file, src_ip, src_port):
+            """
+            author: Jaromír Wysoglad - vyzigold
+            """
             last_cmd = b''
             while True:
                 recv = ssh_conn.recv(1)
@@ -138,16 +143,19 @@ class QSSHServer():
 
                 if len(recv) == 0:
                     break
-                file_lock.acquire()
-                file.write("I:".encode("utf-8"))
-                file.write(len(recv).to_bytes(4, byteorder='little', signed=False))
-                file.write(recv)
-                file_lock.release()
+                try:
+                    file_lock.acquire()
+                    file.write("I:".encode("utf-8"))
+                    file.write(len(recv).to_bytes(4, byteorder='little', signed=False))
+                    file.write(recv)
+                    file_lock.release()
+                except:
+                    continue
                 docker_conn.send(recv)
 
 
         def ConnectionHandle(client, priv):
-            with open("/dev/null", "r") as some_file:
+            with suppress(Exception):
                 t = Transport(client)
                 ip, port = client.getpeername()
                 _q_s.logs.info({'server': 'ssh_server', 'action': 'connection', 'src_ip': ip, 'src_port': port, 'dest_ip': _q_s.ip, 'dest_port': _q_s.port})
@@ -185,7 +193,15 @@ class QSSHServer():
                         else:
                             conn.send("\r\n{}: command not found\r\n".format(line))
                 if "docker" in _q_s.options and conn is not None:
-                    _q_s.logs.info({'server': 'ssh_server', 'action': 'docker', 'src_ip': ip, 'src_port': port, 'dest_ip': _q_s.ip, 'dest_port': _q_s.port})
+                    """
+                    author: Jaromír Wysoglad - vyzigold
+                    """
+                    _q_s.logs.info({'server': 'ssh_server',
+                                    'action': 'docker',
+                                    'src_ip': ip,
+                                    'src_port': port,
+                                    'dest_ip': _q_s.ip,
+                                    'dest_port': _q_s.port})
                     file_lock = Lock()
 
                     client = None
