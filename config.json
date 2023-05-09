@@ -1,0 +1,16 @@
+{
+  "logs": "file,terminal",
+  "logs_location": "/tmp/honeypots",
+  "honeypots": {
+    "ssh": {
+      "port": 25,
+      "username": "ssh",
+      "password": "hhh",
+      "log_file_name": "ssh.log",
+      "max_bytes": 10000,
+      "backup_count": 10,
+      "docker_image": "vyzigold/kali",
+	  "options":["capture_commands", "docker"]
+    }
+  }
+}
