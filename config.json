@@ -10,7 +10,7 @@
       "max_bytes": 10000,
       "backup_count": 10,
       "docker_image": "vyzigold/kali",
-	  "docker_socket_path": "unix://tmp/podman.sock",
+      "docker_recording_path": "/tmp/rec2",
 	  "options":["capture_commands", "docker"]
     }
   }

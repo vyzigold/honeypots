@@ -55,6 +55,7 @@ class QSSHServer():
         self.password = kwargs.get('password', None) or (hasattr(self, 'password') and self.password) or 'test'
         self.docker_image = kwargs.get('docker_image', None) or (hasattr(self, 'docker_image') and self.docker_image) or 'vyzigold/kali'
         self.docker_socket_path = kwargs.get('docker_socket_path', None) or (hasattr(self, 'docker_socket_path') and self.docker_socket_path) or None
+        self.docker_recording_path = kwargs.get('docker_recording_path', None) or (hasattr(self, 'docker_recording_path') and self.docker_recording_path) or "/tmp/communication_recording"
         self.options = kwargs.get('options', '') or (hasattr(self, 'options') and self.options) or getenv('HONEYPOTS_OPTIONS', '') or ''
         self.ansi = rcompile(r'(?:\x1B[@-_]|[\x80-\x9F])[0-?]*[ -/]*[@-~]')
 
@@ -223,7 +224,7 @@ class QSSHServer():
                     s = client.attach_socket(container, params={'stdin': 1, 'stdout': 1 ,'stderr': 1, 'stream': 1})._sock
                     s.settimeout(1)
 
-                    with open("/tmp/communication_recording", "wb") as file:
+                    with open(_q_s.docker_recording_path, "wb") as file:
                         thread = Thread(target = read_input, args = (conn, s, file_lock, file, ip, port))
                         thread.start()
 
